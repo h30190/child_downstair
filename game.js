@@ -24,15 +24,43 @@ const CONFIG = {
         spring: '#ffff00',
         conveyor: '#00ccff',
         fading: '#a5f3fc',
-        ceiling: '#ff3c3c'
-    }
+        ceiling: '#ff3c3c',
+        dino: '#535353',
+        ptero: '#757575',
+        bullet: '#ffff00'
+    },
+    enemySpawnRate: 0.3, // 30% 機率在平台上生成敵人
+    pteroSpawnInterval: 5000 // 5 秒生成一次翼龍
+};
+
+// 像素圖形定義
+const SPRITES = {
+    dino: [
+        [0,0,0,0,1,1,1,1],
+        [0,0,0,0,1,0,1,1],
+        [0,0,0,0,1,1,1,1],
+        [1,0,0,1,1,1,0,0],
+        [1,1,1,1,1,1,1,0],
+        [0,1,1,1,1,1,1,0],
+        [0,0,1,1,1,1,0,0],
+        [0,0,1,0,1,0,0,0]
+    ],
+    ptero: [
+        [0,0,1,1,1,0,0],
+        [1,1,1,1,1,1,1],
+        [0,0,1,1,1,0,0],
+        [0,0,0,1,0,0,0]
+    ]
 };
 
 // 狀態變數
 let gameActive = false;
 let floorCount = 1;
 let platforms = [];
+let enemies = [];
+let bullets = [];
 let lastPlatformTime = 0;
+let lastPteroTime = 0;
 let keys = {};
 
 // 玩家物件
@@ -170,6 +198,116 @@ class Platform {
     }
 }
 
+// 子彈類別
+class Bullet {
+    constructor(x, y, vx, vy, isEnemy = true) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.size = 6;
+        this.isEnemy = isEnemy;
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+    }
+
+    draw() {
+        ctx.fillStyle = CONFIG.colors.bullet;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = CONFIG.colors.bullet;
+        ctx.fillRect(this.x, this.y, this.size, this.size);
+        ctx.shadowBlur = 0;
+    }
+}
+
+// 敵人類別
+class Enemy {
+    constructor(x, y, width, height, type) {
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+        this.type = type;
+        this.lastShootTime = 0;
+        this.shootInterval = 2000;
+    }
+
+    drawPixelArt(sprite, x, y, size, color) {
+        ctx.fillStyle = color;
+        for (let r = 0; r < sprite.length; r++) {
+            for (let c = 0; c < sprite[r].length; c++) {
+                if (sprite[r][c]) {
+                    ctx.fillRect(x + c * size, y + r * size, size, size);
+                }
+            }
+        }
+    }
+}
+
+class DinoEnemy extends Enemy {
+    constructor(platform) {
+        super(platform.x + platform.width/2 - 12, platform.y - 32, 24, 32, 'dino');
+        this.platform = platform;
+        this.dir = 1;
+        this.walkRange = 20;
+        this.offsetX = 0;
+    }
+
+    update() {
+        this.y = this.platform.y - this.height;
+        this.offsetX += 0.5 * this.dir;
+        if (Math.abs(this.offsetX) > this.walkRange) this.dir *= -1;
+        this.x = this.platform.x + this.platform.width/2 - this.width/2 + this.offsetX;
+
+        // 射擊邏輯
+        const now = Date.now();
+        if (now - this.lastShootTime > this.shootInterval) {
+            this.shoot();
+            this.lastShootTime = now;
+        }
+    }
+
+    shoot() {
+        // 朝玩家方向射擊
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const angle = Math.atan2(dy, dx);
+        bullets.push(new Bullet(this.x + this.width/2, this.y, Math.cos(angle) * 3, Math.sin(angle) * 3));
+    }
+
+    draw() {
+        this.drawPixelArt(SPRITES.dino, this.x, this.y, 4, CONFIG.colors.dino);
+    }
+}
+
+class PteroEnemy extends Enemy {
+    constructor() {
+        const side = Math.random() > 0.5 ? 1 : -1;
+        const x = side > 0 ? -50 : CONFIG.canvasWidth + 50;
+        const y = 100 + Math.random() * 200;
+        super(x, y, 32, 20, 'ptero');
+        this.vx = side * (1.5 + Math.random());
+    }
+
+    update() {
+        this.x += this.vx;
+        
+        // 定時向下投彈
+        const now = Date.now();
+        if (now - this.lastShootTime > 3000) {
+            bullets.push(new Bullet(this.x + this.width/2, this.y + this.height, 0, 3));
+            this.lastShootTime = now;
+        }
+    }
+
+    draw() {
+        this.drawPixelArt(SPRITES.ptero, this.x, this.y, 4, CONFIG.colors.ptero);
+    }
+}
+
 // 核心功能
 function initGame() {
     canvas.width = CONFIG.canvasWidth;
@@ -177,6 +315,8 @@ function initGame() {
     
     // 預設第 0 個平台
     platforms = [new Platform(400, 'normal')];
+    enemies = [];
+    bullets = [];
     player.reset();
     floorCount = 1;
     updateUI();
@@ -185,49 +325,73 @@ function initGame() {
 function spawnPlatform() {
     const types = ['normal', 'normal', 'normal', 'spikes', 'spring', 'conveyor', 'fading'];
     const type = types[Math.floor(Math.random() * types.length)];
-    platforms.push(new Platform(CONFIG.canvasHeight, type));
+    const p = new Platform(CONFIG.canvasHeight, type);
+    platforms.push(p);
     
+    // 機率性生成小恐龍
+    if (type === 'normal' && Math.random() < CONFIG.enemySpawnRate) {
+        enemies.push(new DinoEnemy(p));
+    }
+
     // 每一段時間增加層數
     floorCount++;
     updateUI();
 }
 
+function spawnPtero() {
+    enemies.push(new PteroEnemy());
+}
+
 function checkCollision() {
-    if (player.vy < 0 && !player.onPlatform) return;
-
-    for (let p of platforms) {
-        if (
-            player.x + player.width > p.x &&
-            player.x < p.x + p.width &&
-            player.y + player.height >= p.y &&
-            player.y + player.height <= p.y + p.height + player.vy
-        ) {
-            // 碰撞發生
-            if (player.onPlatform !== p) {
-                // 初次落到這個平台
-                player.onPlatform = p;
-                player.y = p.y - player.height;
-                player.vy = 0;
-
-                // 處理效果
-                if (p.type === 'spikes') {
-                    player.takeDamage(3);
-                } else if (p.type === 'spring') {
-                    player.vy = CONFIG.jumpForce * 2;
-                    player.onPlatform = null;
-                } else if (p.type === 'normal') {
-                    player.heal(1);
+    // 平台碰撞 (略，已在原有邏輯中)
+    if (!(player.vy < 0 && !player.onPlatform)) {
+        for (let p of platforms) {
+            if (
+                player.x + player.width > p.x &&
+                player.x < p.x + p.width &&
+                player.y + player.height >= p.y &&
+                player.y + player.height <= p.y + p.height + player.vy
+            ) {
+                if (player.onPlatform !== p) {
+                    player.onPlatform = p;
+                    player.y = p.y - player.height;
+                    player.vy = 0;
+                    if (p.type === 'spikes') player.takeDamage(3);
+                    else if (p.type === 'spring') {
+                        player.vy = CONFIG.jumpForce * 2;
+                        player.onPlatform = null;
+                    } else if (p.type === 'normal') player.heal(1);
                 }
+                if (p.type === 'conveyor') player.x += p.conveyorDir * 1.5;
+                break; 
             }
-            
-            // 傳送帶位移
-            if (p.type === 'conveyor') {
-                player.x += p.conveyorDir * 1.5;
-            }
-            return;
         }
     }
-    player.onPlatform = null;
+
+    // 敵人與子彈碰撞
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        if (
+            player.x < b.x + b.size &&
+            player.x + player.width > b.x &&
+            player.y < b.y + b.size &&
+            player.y + player.height > b.y
+        ) {
+            player.takeDamage(2);
+            bullets.splice(i, 1);
+        }
+    }
+
+    for (let e of enemies) {
+        if (
+            player.x < e.x + e.width &&
+            player.x + player.width > e.x &&
+            player.y < e.y + e.height &&
+            player.y + player.height > e.y
+        ) {
+            player.takeDamage(2);
+        }
+    }
 }
 
 function updateUI() {
@@ -276,17 +440,39 @@ const gameLoop = (time) => {
     // 清除畫布
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 更新與生成平台
+    // 更新與生成物件
     if (time - lastPlatformTime > CONFIG.platformSpawnInterval) {
         spawnPlatform();
         lastPlatformTime = time;
     }
+    if (time - lastPteroTime > CONFIG.pteroSpawnInterval) {
+        spawnPtero();
+        lastPteroTime = time;
+    }
 
+    // 平台更新
     platforms.forEach((p, index) => {
         p.update();
         p.draw();
-        // 移除超出畫面的平台
         if (p.y < -50) platforms.splice(index, 1);
+    });
+
+    // 敵人更新
+    enemies.forEach((e, index) => {
+        e.update();
+        e.draw();
+        if (e.y < -50 || e.x < -100 || e.x > CONFIG.canvasWidth + 100) {
+            enemies.splice(index, 1);
+        }
+    });
+
+    // 子彈更新
+    bullets.forEach((b, index) => {
+        b.update();
+        b.draw();
+        if (b.y < -50 || b.y > CONFIG.canvasHeight + 50 || b.x < -50 || b.x > CONFIG.canvasWidth + 50) {
+            bullets.splice(index, 1);
+        }
     });
 
     // 更新角色
