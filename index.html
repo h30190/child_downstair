@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小球下樓梯 - 霓虹生存戰</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="game-container">
+        <!-- HUD 介面 -->
+        <div id="hud">
+            <div class="hud-item" id="hp-container">
+                <span class="label">LIFE</span>
+                <div class="hp-bar-bg">
+                    <div id="hp-bar-fill"></div>
+                </div>
+                <span id="hp-text">12/12</span>
+            </div>
+            <div class="hud-item" id="floor-container">
+                <span class="label">FLOOR</span>
+                <span id="floor-value">B1</span>
+            </div>
+        </div>
+
+        <!-- 遊戲畫布 -->
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- 遮罩面板 (開始/結束) -->
+        <div id="overlay" class="active">
+            <div class="panel" id="menu-panel">
+                <h1>小朋友下樓梯</h1>
+                <p>霓虹版 (Neon Edition)</p>
+                <div class="controls-hint">
+                    <span>⬅️ / ➡️ 移動</span>
+                    <span>或 A / D 鍵</span>
+                </div>
+                <button id="start-btn">開始挑戰</button>
+            </div>
+            
+            <div class="panel hidden" id="gameover-panel">
+                <h1 class="danger">挑戰失敗</h1>
+                <p>你到達了地下 <span id="final-floor">0</span> 層</p>
+                <button id="restart-btn">重新開始</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
